@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sri Lanka City Weather Report</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+  body {
+    margin: 0;
+    font-family: 'Poppins', sans-serif;
+    background: linear-gradient(135deg, #74ebd5 0%, #9face6 100%);
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100vh;
+    padding: 40px 10px;
+    color: #333;
+  }
+  .weather-container {
+    background: rgba(255,255,255,0.95);
+    border-radius: 15px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+    padding: 30px 40px;
+    max-width: 420px;
+    width: 100%;
+    text-align: center;
+  }
+  h1 {
+    margin-bottom: 20px;
+    color: #2c3e50;
+  }
+  input[type="text"] {
+    padding: 12px 15px;
+    width: 100%;
+    border: 2px solid #74ebd5;
+    border-radius: 25px;
+    font-size: 16px;
+    outline: none;
+    transition: border-color 0.3s ease;
+    box-sizing: border-box;
+  }
+  input[type="text"]:focus {
+    border-color: #4a90e2;
+  }
+  button {
+    margin-top: 15px;
+    padding: 12px 30px;
+    background-color: #4a90e2;
+    border: none;
+    color: white;
+    font-weight: 600;
+    border-radius: 25px;
+    cursor: pointer;
+    font-size: 16px;
+    box-shadow: 0 5px 10px rgba(74,144,226,0.6);
+    transition: background-color 0.3s ease;
+  }
+  button:hover {
+    background-color: #357ABD;
+  }
+  .weather-result {
+    margin-top: 25px;
+    color: #2c3e50;
+  }
+  .loading {
+    margin-top: 20px;
+    color: #888;
+    font-style: italic;
+  }
+  .error {
+    margin-top: 20px;
+    color: #e74c3c;
+    font-weight: 600;
+  }
+  .weather-icon {
+    margin-top: 10px;
+    width: 80px;
+    height: 80px;
+  }
+  .city-suggestions {
+    margin-top: 10px;
+    max-height: 150px;
+    overflow-y: auto;
+    background: white;
+    border: 1px solid #74ebd5;
+    border-radius: 10px;
+    text-align: left;
+  }
+  .city-suggestion {
+    padding: 8px 15px;
+    cursor: pointer;
+    border-bottom: 1px solid #eee;
+  }
+  .city-suggestion:last-child {
+    border-bottom: none;
+  }
+  .city-suggestion:hover {
+    background-color: #74ebd5;
+    color: white;
+  }
+</style>
+</head>
+<body>
+  <div class="weather-container" role="main">
+    <h1>Sri Lanka City Weather</h1>
+    <label for="cityInput" style="display:none;">City name</label>
+    <input type="text" id="cityInput" placeholder="Enter Sri Lanka city" aria-label="City name" autocomplete="off" />
+    <div id="suggestions" class="city-suggestions" style="display:none;" aria-live="polite"></div>
+    <button id="getWeatherBtn" aria-label="Get Weather">Get Weather</button>
+    <div id="loading" class="loading" style="display:none;">Loading...</div>
+    <div id="error" class="error" role="alert" style="display:none;"></div>
+    <div id="weatherResult" class="weather-result" aria-live="polite"></div>
+  </div>
+
+ <script>
+  const cityInput = document.getElementById('cityInput');
+  const getWeatherBtn = document.getElementById('getWeatherBtn');
+  const weatherResult = document.getElementById('weatherResult');
+  const loading = document.getElementById('loading');
+  const error = document.getElementById('error');
+  const suggestions = document.getElementById('suggestions');
+
+  let selectedCity = null;
+
+  // Debounce helper to reduce API calls on typing
+  function debounce(func, delay) {
+    let timeout;
+    return (...args) => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => func(...args), delay);
+    };
+  }
+
+  // Fetch city suggestions from Nominatim restricted to Sri Lanka
+  async function fetchCitySuggestions(query) {
+    if (!query) {
+      suggestions.style.display = 'none';
+      suggestions.innerHTML = '';
+      return;
+    }
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&countrycodes=lk&limit=5&city=${encodeURIComponent(query)}`;
+      const res = await fetch(url, {
+        headers: {
+          'Accept-Language': 'en'
+        }
+      });
+      if (!res.ok) throw new Error('Error fetching city suggestions');
+      const data = await res.json();
+      if (data.length === 0) {
+        suggestions.style.display = 'none';
+        suggestions.innerHTML = '';
+        return;
+      }
+      displayCitySuggestions(data);
+    } catch (err) {
+      showError('Failed to fetch city suggestions. Please try again later.');
+      suggestions.style.display = 'none';
+      suggestions.innerHTML = '';
+    }
+  }
+
+  function displayCitySuggestions(cities) {
+    suggestions.innerHTML = '';
+    cities.forEach(city => {
+      const state = city.address.state || city.address.county || '';
+      const displayName = `${city.display_name.split(',')[0]}${state ? ', ' + state : ''}`;
+      const div = document.createElement('div');
+      div.className = 'city-suggestion';
+      div.textContent = displayName;
+      div.tabIndex = 0;
+      div.setAttribute('role', 'button');
+      div.addEventListener('click', () => onSelectCity(city));
+      div.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          onSelectCity(city);
+        }
+      });
+      suggestions.appendChild(div);
+    });
+    suggestions.style.display = 'block';
+  }
+
+  function onSelectCity(city) {
+    selectedCity = city;
+    cityInput.value = city.display_name.split(',')[0];
+    suggestions.style.display = 'none';
+    suggestions.innerHTML = '';
+  }
+
+  async function fetchWeather(lat, lon) {
+    loading.style.display = 'block';
+    error.style.display = 'none';
+    weatherResult.innerHTML = '';
+    try {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Failed to fetch weather');
+      const data = await res.json();
+      if (!data.current_weather) throw new Error('No weather data available');
+      displayWeather(data.current_weather);
+    } catch (err) {
+      showError('Failed to fetch weather data. Please try again later.');
+    } finally {
+      loading.style.display = 'none';
+    }
+  }
+
+  function displayWeather(weather) {
+    const weatherCodeMap = {
+      0: 'Clear sky',
+      1: 'Mainly clear',
+      2: 'Partly cloudy',
+      3: 'Overcast',
+      45: 'Fog',
+      48: 'Depositing rime fog',
+      51: 'Light drizzle',
+      53: 'Moderate drizzle',
+      55: 'Dense drizzle',
+      56: 'Light freezing drizzle',
+      57: 'Dense freezing drizzle',
+      61: 'Slight rain',
+      63: 'Moderate rain',
+      65: 'Heavy rain',
+      66: 'Light freezing rain',
+      67: 'Heavy freezing rain',
+      71: 'Slight snow fall',
+      73: 'Moderate snow fall',
+      75: 'Heavy snow fall',
+      77: 'Snow grains',
+      80: 'Slight rain showers',
+      81: 'Moderate rain showers',
+      82: 'Violent rain showers',
+      85: 'Slight snow showers',
+      86: 'Heavy snow showers',
+      95: 'Thunderstorm',
+      96: 'Thunderstorm with slight hail',
+      99: 'Thunderstorm with heavy hail'
+    };
+
+    const description = weatherCodeMap[weather.weathercode] || 'Unknown';
+
+    weatherResult.innerHTML = `
+      <p><strong>Temperature:</strong> ${weather.temperature} °C</p>
+      <p><strong>Wind Speed:</strong> ${weather.windspeed} km/h</p>
+      <p><strong>Wind Direction:</strong> ${weather.winddirection}°</p>
+      <p><strong>Condition:</strong> ${description}</p>
+      <p><small>Last update: ${new Date(weather.time).toLocaleString()}</small></p>
+    `;
+  }
+
+  function showError(message) {
+    error.textContent = message;
+    error.style.display = 'block';
+  }
+
+  getWeatherBtn.addEventListener('click', () => {
+    if (!selectedCity) {
+      showError('Please select a city from suggestions');
+      return;
+    }
+    error.style.display = 'none';
+    fetchWeather(selectedCity.lat, selectedCity.lon);
+  });
+
+  cityInput.addEventListener('input', debounce(() => {
+    selectedCity = null;
+    error.style.display = 'none';
+    weatherResult.innerHTML = '';
+    fetchCitySuggestions(cityInput.value.trim());
+  }, 400));
+
+  document.addEventListener('click', (e) => {
+    if (!suggestions.contains(e.target) && e.target !== cityInput) {
+      suggestions.style.display = 'none';
+    }
+  });
+
+  cityInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (suggestions.children.length > 0) {
+        suggestions.children[0].click();
+      } else {
+        getWeatherBtn.click();
+      }
+    }
+  });
+</script>
+</body>
+</html>
+
